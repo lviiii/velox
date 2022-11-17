@@ -73,8 +73,13 @@ void registerFunctions(const std::string& prefix) {
   // Register size functions
   registerSize(prefix + "size");
 
+  // Register json functions
   registerFunction<JsonExtractScalarFunction, Varchar, Varchar, Varchar>(
       {prefix + "get_json_object"});
+  registerFunction<JsonArrayLengthFunction, int32_t, Varchar>(
+      {"json_array_length"});
+  registerFunction<JsonArrayLengthFunction, int64_t, Varchar>(
+      {"json_array_length"});
 
   // Register string functions.
   registerFunction<sparksql::ChrFunction, Varchar, int64_t>({prefix + "chr"});
@@ -144,6 +149,13 @@ void registerFunctions(const std::string& prefix) {
       prefix + "array_sort", arraySortSignatures(), makeArraySort);
   exec::registerStatefulVectorFunction(
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
+  
+  // Register DateTime functions.
+  registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
+        {prefix + "day_of_month"});
+  registerFunction<DayOfWeekFunction, int64_t, Timestamp>(
+      {prefix + "day_of_month"});
+
 }
 
 } // namespace sparksql
