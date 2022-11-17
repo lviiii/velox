@@ -18,6 +18,7 @@
 #include "folly/Singleton.h"
 #include "folly/Synchronized.h"
 #include "velox/expression/SignatureBinder.h"
+#include "iostream"
 
 namespace facebook::velox::exec {
 
@@ -44,6 +45,7 @@ std::shared_ptr<const Type> resolveVectorFunction(
   if (auto vectorFunctionSignatures =
           exec::getVectorFunctionSignatures(functionName)) {
     for (const auto& signature : vectorFunctionSignatures.value()) {
+      std::cout << "resolveVectorFunction: "<< functionName << ", signature:" << signature->toString() << std::endl;
       exec::SignatureBinder binder(*signature, argTypes);
       if (binder.tryBind()) {
         return binder.tryResolveReturnType();

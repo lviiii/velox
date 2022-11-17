@@ -19,6 +19,8 @@
 #include "velox/substrait/VariantToVectorConverter.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/VariantToVector.h"
+#include "iostream"
+
 using namespace facebook::velox;
 namespace {
 // Get values for the different supported types.
@@ -248,6 +250,8 @@ SubstraitVeloxExprConverter::toVeloxExpr(
   const auto& veloxFunction =
       subParser_->findVeloxFunction(functionMap_, sFunc.function_reference());
   std::string typeName = subParser_->parseType(sFunc.output_type())->type;
+  std::cout << "Parsing Velox function: " << veloxFunction <<
+    ", output type: " << typeName << std::endl;
 
   if (veloxFunction == "extract") {
     return toExtractExpr(std::move(params), toVeloxType(typeName));
