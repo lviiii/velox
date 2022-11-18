@@ -24,6 +24,8 @@ void registerJsonFunctions() {
   registerFunction<IsJsonScalarFunction, bool, Json>({"is_json_scalar"});
   registerFunction<JsonExtractScalarFunction, Varchar, Json, Varchar>(
       {"json_extract_scalar"});
+  registerFunction<JsonArrayLengthFunction, int32_t, Json>(
+      {"json_array_length"});
   registerFunction<JsonArrayLengthFunction, int64_t, Json>(
       {"json_array_length"});
   registerFunction<JsonArrayContainsFunction, bool, Json, bool>(

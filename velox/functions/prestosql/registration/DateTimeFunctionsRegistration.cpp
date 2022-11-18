@@ -46,6 +46,8 @@ void registerSimpleFunctions() {
       {"minus"});
   registerFunction<DatePlusIntervalDayTime, Date, Date, IntervalDayTime>(
       {"plus"});
+  registerFunction<DayFunction, int32_t, TimestampWithTimezone>(
+      {"day", "day_of_month"});
   registerFunction<DayFunction, int64_t, TimestampWithTimezone>(
       {"day", "day_of_month"});
   registerFunction<DayOfWeekFunction, int64_t, Timestamp>(
