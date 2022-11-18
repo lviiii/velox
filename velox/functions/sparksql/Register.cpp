@@ -151,9 +151,9 @@ void registerFunctions(const std::string& prefix) {
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
   
   // Register DateTime functions.
-  registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
+  registerFunction<DayFunction, int32_t, Timestamp>(
         {prefix + "day_of_month"});
-  registerFunction<DayOfWeekFunction, int64_t, Timestamp>(
+  registerFunction<DayFunction, int64_t, Timestamp>(
       {prefix + "day_of_month"});
 
 }
