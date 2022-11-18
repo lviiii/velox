@@ -232,6 +232,10 @@ struct DayFunction : public InitSessionTimezone<T>,
     result = getDateTime(timestamp, this->timeZone_).tm_mday;
   }
 
+  FOLLY_ALWAYS_INLINE void call(int32_t& result, const arg_type<Date>& date) {
+    result = getDateTime(date).tm_mday;
+  }
+
   FOLLY_ALWAYS_INLINE void call(int64_t& result, const arg_type<Date>& date) {
     result = getDateTime(date).tm_mday;
   }
