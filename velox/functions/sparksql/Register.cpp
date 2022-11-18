@@ -78,8 +78,8 @@ void registerFunctions(const std::string& prefix) {
       {prefix + "get_json_object"});
   registerFunction<JsonArrayLengthFunction, int32_t, Varchar>(
       {prefix + "json_array_length"});
-  registerFunction<JsonArrayLengthFunction, int64_t, Varchar>(
-      {prefix + "json_array_length"});
+//  registerFunction<JsonArrayLengthFunction, int64_t, Varchar>(
+//      {prefix + "json_array_length"});
 
   // Register string functions.
   registerFunction<sparksql::ChrFunction, Varchar, int64_t>({prefix + "chr"});
