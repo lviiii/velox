@@ -76,10 +76,10 @@ void registerFunctions(const std::string& prefix) {
   // Register json functions
   registerFunction<JsonExtractScalarFunction, Varchar, Varchar, Varchar>(
       {prefix + "get_json_object"});
-//   registerFunction<JsonArrayLengthFunction, int32_t, Varchar>(
-//       {prefix + "json_array_length"});
-//   registerFunction<JsonArrayLengthFunction, int64_t, Varchar>(
-//       {prefix + "json_array_length"});
+  registerFunction<JsonArrayLengthFunction, int32_t, Varchar>(
+      {prefix + "json_array_length"});
+  registerFunction<JsonArrayLengthFunction, int64_t, Varchar>(
+      {prefix + "json_array_length"});
 
   // Register string functions.
   registerFunction<sparksql::ChrFunction, Varchar, int64_t>({prefix + "chr"});
@@ -150,11 +150,11 @@ void registerFunctions(const std::string& prefix) {
   exec::registerStatefulVectorFunction(
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
   
-//   // Register DateTime functions.
-//   registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
-//         {prefix + "day_of_month"});
-//   registerFunction<DayOfWeekFunction, int64_t, Timestamp>(
-//       {prefix + "day_of_month"});
+  // Register DateTime functions.
+  registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
+        {prefix + "day_of_month"});
+  registerFunction<DayOfWeekFunction, int64_t, Timestamp>(
+      {prefix + "day_of_month"});
 
 }
 
