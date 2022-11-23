@@ -22,7 +22,7 @@ set(TEST_LINK_LIBS
     ${GLOG}
     ${FILESYSTEM})
 
-#add_subdirectory(duckdb_reader)
+add_subdirectory(duckdb_reader)
 add_subdirectory(reader)
 
 add_executable(velox_dwio_parquet_tpch_test ParquetTpchTest.cpp)
