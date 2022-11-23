@@ -147,35 +147,48 @@ void registerFunctions(const std::string& prefix) {
   exec::registerStatefulVectorFunction(
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
 
-  // Register DateTime functions.
+// Register DateTime functions.
+  registerFunction<MillisecondFunction, int32_t, Date>(
+      {prefix + "millisecond"});
+  registerFunction<MillisecondFunction, int32_t, Timestamp>(
+      {prefix + "millisecond"});
+  registerFunction<SecondFunction, int32_t, Date>(
+      {prefix + "second"});
+  registerFunction<SecondFunction, int32_t, Timestamp>(
+      {prefix + "second"});
+  registerFunction<HourFunction, int32_t, Date>(
+      {prefix + "hour"});
+  registerFunction<HourFunction, int32_t, Timestamp>(
+      {prefix + "hour"});
   registerFunction<DayFunction, int32_t, Date>(
       {prefix + "day_of_month"});
   registerFunction<DayFunction, int32_t, Timestamp>(
       {prefix + "day_of_month"});
-//  registerFunction<DayOfWeekFunction, int32_t, Date>(
-//      {prefix + "day_of_week"});
-//  registerFunction<DayOfWeekFunction, int32_t, Date>(
-//      {prefix + "day_of_week"});
-//  registerFunction<DayOfYearFunction, int32_t, Date>(
-//      {prefix + "day_of_year"});
-//  registerFunction<DayOfYearFunction, int32_t, Date>(
-//      {prefix + "day_of_year"});
-//  registerFunction<MonthFunction, int32_t, Date>(
-//      {prefix + "month"});
-//  registerFunction<MonthFunction, int32_t, Timestamp>(
-//      {prefix + "month"});
-//  registerFunction<QuarterFunction, int32_t, Date>(
-//      {prefix + "quarter"});
-//  registerFunction<QuarterFunction, int32_t, Timestamp>(
-//      {prefix + "quarter"});
-//  registerFunction<YearFunction, int32_t, Date>(
-//      {prefix + "year"});
-//  registerFunction<YearFunction, int32_t, Timestamp>(
-//      {prefix + "year"});
-//  registerFunction<YearOfWeekFunction, int32_t, Date>(
-//      {prefix + "year_of_week"});
-//  registerFunction<YearOfWeekFunction, int32_t, Timestamp>(
-//      {prefix + "year_of_week"});
+  registerFunction<DayOfWeekFunction, int32_t, Date>(
+      {prefix + "day_of_week"});
+  registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
+      {prefix + "day_of_week"});
+  registerFunction<DayOfYearFunction, int32_t, Date>(
+      {prefix + "day_of_year"});
+  registerFunction<DayOfYearFunction, int32_t, Timestamp>(
+      {prefix + "day_of_year"});
+  registerFunction<MonthFunction, int32_t, Date>(
+      {prefix + "month"});
+  registerFunction<MonthFunction, int32_t, Timestamp>(
+      {prefix + "month"});
+  registerFunction<QuarterFunction, int32_t, Date>(
+      {prefix + "quarter"});
+  registerFunction<QuarterFunction, int32_t, Timestamp>(
+      {prefix + "quarter"});
+  registerFunction<YearFunction, int32_t, Date>(
+      {prefix + "year"});
+  registerFunction<YearFunction, int32_t, Timestamp>(
+      {prefix + "year"});
+  registerFunction<YearOfWeekFunction, int32_t, Date>(
+      {prefix + "year_of_week"});
+  registerFunction<YearOfWeekFunction, int32_t, Timestamp>(
+      {prefix + "year_of_week"});
+
 }
 
 } // namespace sparksql
