@@ -18,7 +18,7 @@
 #include "velox/functions/lib/IsNull.h"
 #include "velox/functions/lib/Re2Functions.h"
 #include "velox/functions/lib/RegistrationHelpers.h"
-#include "velox/functions/prestosql/DateTimeFunctions.h"
+#include "velox/functions/sparksql/DateTime.h"
 #include "velox/functions/prestosql/JsonFunctions.h"
 #include "velox/functions/prestosql/Rand.h"
 #include "velox/functions/prestosql/StringFunctions.h"
@@ -144,6 +144,12 @@ void registerFunctions(const std::string& prefix) {
       prefix + "array_sort", arraySortSignatures(), makeArraySort);
   exec::registerStatefulVectorFunction(
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
+
+  // Register DateTime functions.
+  registerFunction<DayFunction, int32_t, Date>(
+      {prefix + "day_of_month"});
+  registerFunction<DayFunction, int64_t, Date>(
+      {prefix + "day_of_month"});
 }
 
 } // namespace sparksql
