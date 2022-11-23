@@ -16,6 +16,7 @@
 #pragma once
 
 #include "velox/connectors/Connector.h"
+#include "velox/connectors/WriteProtocol.h"
 #include "velox/core/Expressions.h"
 
 #include "velox/vector/arrow/c/Bridge.h"
@@ -424,13 +425,15 @@ class TableWriteNode : public PlanNode {
       const std::vector<std::string>& columnNames,
       const std::shared_ptr<InsertTableHandle>& insertTableHandle,
       const RowTypePtr& outputType,
+      connector::WriteProtocol::CommitStrategy commitStrategy,
       const PlanNodePtr& source)
       : PlanNode(id),
         sources_{source},
         columns_{columns},
         columnNames_{columnNames},
         insertTableHandle_(insertTableHandle),
-        outputType_(outputType) {
+        outputType_(outputType),
+        commitStrategy_(commitStrategy) {
     VELOX_CHECK_EQ(columns->size(), columnNames.size());
     for (const auto& column : columns->names()) {
       VELOX_CHECK(source->outputType()->containsChild(column));
@@ -461,6 +464,10 @@ class TableWriteNode : public PlanNode {
     return insertTableHandle_;
   }
 
+  connector::WriteProtocol::CommitStrategy commitStrategy() const {
+    return commitStrategy_;
+  }
+
   std::string_view name() const override {
     return "TableWrite";
   }
@@ -473,6 +480,7 @@ class TableWriteNode : public PlanNode {
   const std::vector<std::string> columnNames_;
   const std::shared_ptr<InsertTableHandle> insertTableHandle_;
   const RowTypePtr outputType_;
+  const connector::WriteProtocol::CommitStrategy commitStrategy_;
 };
 
 class AggregationNode : public PlanNode {
@@ -633,6 +641,24 @@ class GroupIdNode : public PlanNode {
       std::string groupIdName,
       PlanNodePtr source);
 
+#ifdef VELOX_ENABLE_BACKWARD_COMPATIBILITY
+  /// TODO Remove after updating Prestissimo.
+  GroupIdNode(
+      PlanNodeId id,
+      std::vector<std::vector<FieldAccessTypedExprPtr>> groupingSets,
+      std::map<std::string, FieldAccessTypedExprPtr> outputGroupingKeyNames,
+      std::vector<FieldAccessTypedExprPtr> aggregationInputs,
+      std::string groupIdName,
+      PlanNodePtr source)
+      : GroupIdNode(
+            std::move(id),
+            std::move(groupingSets),
+            makeGroupingKeyInfos(outputGroupingKeyNames),
+            std::move(aggregationInputs),
+            std::move(groupIdName),
+            std::move(source)) {}
+#endif
+
   const RowTypePtr& outputType() const override {
     return outputType_;
   }
@@ -667,6 +693,19 @@ class GroupIdNode : public PlanNode {
   }
 
  private:
+#ifdef VELOX_ENABLE_BACKWARD_COMPATIBILITY
+  /// TODO Remove after updating Prestissimo.
+  static std::vector<GroupIdNode::GroupingKeyInfo> makeGroupingKeyInfos(
+      const std::map<std::string, FieldAccessTypedExprPtr>&
+          outputGroupingKeyNames) {
+    std::vector<GroupIdNode::GroupingKeyInfo> infos;
+    for (const auto& [name, field] : outputGroupingKeyNames) {
+      infos.push_back({name, field});
+    }
+    return infos;
+  }
+#endif
+
   void addDetails(std::stringstream& stream) const override;
 
   const std::vector<PlanNodePtr> sources_;
@@ -1003,7 +1042,6 @@ enum class JoinType {
   // right that have no match on the left with left-side columns filled with
   // nulls.
   kFull,
-  kLeftSemi, // TODO Remove after updating Prestissimo.
   // Return a subset of rows from the left side which have a match on the right
   // side. For this join type, cardinality of the output is less than or equal
   // to the cardinality of the left side.
@@ -1012,7 +1050,6 @@ enum class JoinType {
   // there exists a match on the right side. For this join type, cardinality of
   // the output equals the cardinality of the left side.
   kLeftSemiProject,
-  kRightSemi, // TODO Remove after updating Prestissimo.
   // Opposite of kLeftSemiFilter. Return a subset of rows from the right side
   // which have a match on the left side. For this join type, cardinality of the
   // output is less than or equal to the cardinality of the right side.
@@ -1048,10 +1085,8 @@ inline const char* joinTypeName(JoinType joinType) {
       return "RIGHT";
     case JoinType::kFull:
       return "FULL";
-    case JoinType::kLeftSemi:
     case JoinType::kLeftSemiFilter:
       return "LEFT SEMI (FILTER)";
-    case JoinType::kRightSemi:
     case JoinType::kRightSemiFilter:
       return "RIGHT SEMI (FILTER)";
     case JoinType::kLeftSemiProject:
@@ -1083,8 +1118,7 @@ inline bool isFullJoin(JoinType joinType) {
 }
 
 inline bool isLeftSemiFilterJoin(JoinType joinType) {
-  return joinType == JoinType::kLeftSemiFilter ||
-      joinType == JoinType::kLeftSemi;
+  return joinType == JoinType::kLeftSemiFilter;
 }
 
 inline bool isLeftSemiProjectJoin(JoinType joinType) {
@@ -1092,8 +1126,7 @@ inline bool isLeftSemiProjectJoin(JoinType joinType) {
 }
 
 inline bool isRightSemiFilterJoin(JoinType joinType) {
-  return joinType == JoinType::kRightSemiFilter ||
-      joinType == JoinType::kRightSemi;
+  return joinType == JoinType::kRightSemiFilter;
 }
 
 inline bool isRightSemiProjectJoin(JoinType joinType) {
@@ -1155,8 +1188,7 @@ class AbstractJoinNode : public PlanNode {
   }
 
   bool isLeftSemiFilterJoin() const {
-    return joinType_ == JoinType::kLeftSemiFilter ||
-        joinType_ == JoinType::kLeftSemi;
+    return joinType_ == JoinType::kLeftSemiFilter;
   }
 
   bool isLeftSemiProjectJoin() const {
@@ -1164,8 +1196,7 @@ class AbstractJoinNode : public PlanNode {
   }
 
   bool isRightSemiFilterJoin() const {
-    return joinType_ == JoinType::kRightSemiFilter ||
-        joinType_ == JoinType::kRightSemi;
+    return joinType_ == JoinType::kRightSemiFilter;
   }
 
   bool isRightSemiProjectJoin() const {

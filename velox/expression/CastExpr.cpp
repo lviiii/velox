@@ -694,57 +694,34 @@ std::string CastExpr::toString(bool recursive) const {
   return out.str();
 }
 
-namespace {
-
-/// Appends type's SQL string to 'out'. Uses DuckDB SQL.
-void toTypeSql(const TypePtr& type, std::ostream& out) {
-  if (type->isPrimitiveType()) {
-    out << type->toString();
-    return;
-  }
-
-  switch (type->kind()) {
-    case TypeKind::ARRAY:
-      // Append <type>[], e.g. bigint[].
-      toTypeSql(type->childAt(0), out);
-      out << "[]";
-      break;
-    case TypeKind::MAP:
-      // Append map(<key>, <value>), e.g. map(varchar, bigint).
-      out << "map(";
-      toTypeSql(type->childAt(0), out);
-      out << ", ";
-      toTypeSql(type->childAt(1), out);
-      out << ")";
-      break;
-    case TypeKind::ROW: {
-      // Append struct(name1 type1, name2 type2,..), e.g.
-      // struct(a bigint, b real);
-      const auto& rowType = type->asRow();
-      out << "struct(";
-      for (auto i = 0; i < type->size(); ++i) {
-        if (i > 0) {
-          out << ", ";
-        }
-        out << rowType.nameOf(i) << " ";
-        toTypeSql(type->childAt(i), out);
-      }
-      out << ")";
-      break;
-    }
-    default:
-      VELOX_UNSUPPORTED("Type is not supported: {}", type->toString());
-  }
-}
-} // namespace
-
-std::string CastExpr::toSql() const {
+std::string CastExpr::toSql(std::vector<VectorPtr>* complexConstants) const {
   std::stringstream out;
   out << "cast(";
-  appendInputsSql(out);
+  appendInputsSql(out, complexConstants);
   out << " as ";
   toTypeSql(type_, out);
   out << ")";
   return out.str();
+}
+
+TypePtr CastCallToSpecialForm::resolveType(
+    const std::vector<TypePtr>& /* argTypes */) {
+  VELOX_FAIL("CAST expressions do not support type resolution.");
+}
+
+ExprPtr CastCallToSpecialForm::constructSpecialForm(
+    const TypePtr& type,
+    std::vector<ExprPtr>&& compiledChildren,
+    bool trackCpuUsage) {
+  VELOX_CHECK_EQ(
+      compiledChildren.size(),
+      1,
+      "CAST statements expect exactly 1 argument, received {}",
+      compiledChildren.size());
+  return std::make_shared<CastExpr>(
+      type,
+      std::move(compiledChildren[0]),
+      trackCpuUsage,
+      false /* nullOnFailure */);
 }
 } // namespace facebook::velox::exec

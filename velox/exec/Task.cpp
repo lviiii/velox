@@ -162,8 +162,8 @@ Task::Task(
       planFragment_(std::move(planFragment)),
       destination_(destination),
       queryCtx_(std::move(queryCtx)),
-      pool_(queryCtx_->pool()->addScopedChild(
-          fmt::format("task.{}", taskId_.c_str()))),
+      pool_(
+          queryCtx_->pool()->addChild(fmt::format("task.{}", taskId_.c_str()))),
       splitPlanNodeIds_(collectSplitPlanNodeIds(planFragment_.planNode)),
       consumerSupplier_(std::move(consumerSupplier)),
       onError_(onError),
@@ -188,10 +188,6 @@ Task::~Task() {
   } catch (const std::exception& e) {
     LOG(WARNING) << "Caught exception in ~Task(): " << e.what();
   }
-  // NOTE: this is a hack to enforce destruction on 'planFragment_'. We found in
-  // some case the task dtor doesn't call 'planFragment_' dtor which cause the
-  // memory leak of the vectors held by the plan node such as Value node.
-  planFragment_.planNode.reset();
 }
 
 velox::memory::MemoryPool* FOLLY_NONNULL
@@ -199,8 +195,7 @@ Task::getOrAddNodePool(const core::PlanNodeId& planNodeId) {
   if (nodePools_.count(planNodeId) == 1) {
     return nodePools_[planNodeId];
   }
-  childPools_.push_back(
-      pool_->addScopedChild(fmt::format("node.{}", planNodeId)));
+  childPools_.push_back(pool_->addChild(fmt::format("node.{}", planNodeId)));
   auto* nodePool = childPools_.back().get();
   auto parentTracker = pool_->getMemoryUsageTracker();
   if (parentTracker != nullptr) {
@@ -214,7 +209,7 @@ velox::memory::MemoryPool* FOLLY_NONNULL Task::addOperatorPool(
     int pipelineId,
     const std::string& operatorType) {
   auto* nodePool = getOrAddNodePool(planNodeId);
-  childPools_.push_back(nodePool->addScopedChild(
+  childPools_.push_back(nodePool->addChild(
       fmt::format("op.{}.{}.{}", planNodeId, pipelineId, operatorType)));
   return childPools_.back().get();
 }
@@ -1415,7 +1410,31 @@ void Task::addOperatorStats(OperatorStats& stats) {
   taskStats_.pipelineStats[stats.pipelineId]
       .operatorStats[stats.operatorId]
       .add(stats);
-  stats.clear();
+}
+
+TaskStats Task::taskStats() const {
+  std::lock_guard<std::mutex> l(mutex_);
+
+  // 'taskStats_' contains task stats plus stats for the completed drivers
+  // (their operators).
+  TaskStats taskStats = taskStats_;
+
+  // Add stats of the drivers (their operators) that are still running.
+  for (const auto& driver : drivers_) {
+    // Driver can be null.
+    if (driver == nullptr) {
+      continue;
+    }
+
+    for (auto& op : driver->operators()) {
+      auto statsCopy = op->stats(false);
+      taskStats.pipelineStats[statsCopy.pipelineId]
+          .operatorStats[statsCopy.operatorId]
+          .add(statsCopy);
+    }
+  }
+
+  return taskStats;
 }
 
 uint64_t Task::timeSinceStartMs() const {
@@ -1868,8 +1887,7 @@ void collectOperatorMemoryUsage(
   const auto numBytes =
       operatorPool->getMemoryUsageTracker()->getCurrentTotalBytes();
   nodeMemoryUsage.total.update(numBytes);
-  auto& operatorMemoryUsage =
-      nodeMemoryUsage.operators[operatorPool->getName()];
+  auto& operatorMemoryUsage = nodeMemoryUsage.operators[operatorPool->name()];
   operatorMemoryUsage.update(numBytes);
 }
 
@@ -1881,7 +1899,7 @@ void collectNodeMemoryUsage(
       nodePool->getMemoryUsageTracker()->getCurrentTotalBytes());
 
   // NOTE: we use a plan node id as the node memory pool's name.
-  const auto& poolName = nodePool->getName();
+  const auto& poolName = nodePool->name();
   auto& nodeMemoryUsage = taskMemoryUsage.nodes[poolName];
 
   // Run through the node's child operator pools and update the memory usage.
@@ -1893,7 +1911,7 @@ void collectNodeMemoryUsage(
 void collectTaskMemoryUsage(
     TaskMemoryUsage& taskMemoryUsage,
     memory::MemoryPool* taskPool) {
-  taskMemoryUsage.taskId = taskPool->getName();
+  taskMemoryUsage.taskId = taskPool->name();
   taskPool->visitChildren([&taskMemoryUsage](memory::MemoryPool* nodePool) {
     collectNodeMemoryUsage(taskMemoryUsage, nodePool);
   });
@@ -1919,7 +1937,7 @@ std::string getQueryMemoryUsageString(memory::MemoryPool* queryPool) {
   // Build the query memory use tree (task->node->operator).
   std::stringstream out;
   out << "\n";
-  out << queryPool->getName();
+  out << queryPool->name();
   out << ": total: ";
   out << succinctBytes(
       queryPool->getMemoryUsageTracker()->getCurrentTotalBytes());
@@ -1990,11 +2008,13 @@ void Task::testingWaitForAllTasksToBeDeleted(uint64_t maxWaitUs) {
       break;
     }
   }
-  if (numDeletedTasks < numCreatedTasks) {
-    LOG(ERROR) << numCreatedTasks << " tasks hav been created while only "
-               << numDeletedTasks << " have been deleted after waiting for "
-               << waitUs << " us";
-  }
+  VELOX_CHECK_EQ(
+      numDeletedTasks,
+      numCreatedTasks,
+      "{} tasks have been created while only {} have been deleted after waiting for {} us",
+      numCreatedTasks,
+      numDeletedTasks,
+      waitUs);
 }
 
 } // namespace facebook::velox::exec

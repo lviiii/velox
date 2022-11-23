@@ -46,8 +46,10 @@ class SimpleAggregatesTest : public WindowTestBase {
 
   void testWindowFunction(
       const std::vector<RowVectorPtr>& vectors,
-      const std::vector<std::string>& overClauses) {
-    WindowTestBase::testWindowFunction(vectors, function_, overClauses);
+      const std::vector<std::string>& overClauses,
+      const std::vector<std::string>& frameClauses = {""}) {
+    WindowTestBase::testWindowFunction(
+        vectors, function_, overClauses, frameClauses);
   }
 
   const std::string function_;
@@ -107,16 +109,41 @@ TEST_P(MultiAggregatesTest, randomInput) {
   testWindowFunction(vectors, overClauses);
 }
 
+TEST_P(MultiAggregatesTest, basicRangeFrames) {
+  SimpleAggregatesTest::testWindowFunction(
+      {makeBasicVectors(50)}, kFrameOverClauses, kRangeFrameClauses);
+}
+
+TEST_P(MultiAggregatesTest, basicRangeFramesWithSortOrders) {
+  SimpleAggregatesTest::testWindowFunction(
+      {makeBasicVectors(50)}, kSortOrderBasedOverClauses, kRangeFrameClauses);
+}
+
+TEST_P(MultiAggregatesTest, singlePartitionRangeFrames) {
+  SimpleAggregatesTest::testWindowFunction(
+      {makeSinglePartitionVector(100)}, kFrameOverClauses, kRangeFrameClauses);
+}
+
+TEST_P(MultiAggregatesTest, basicRowFrames) {
+  SimpleAggregatesTest::testWindowFunction(
+      {makeBasicVectors(50)}, kFrameOverClauses, kRowsFrameClauses);
+}
+
+TEST_P(MultiAggregatesTest, singlePartitionRowFrames) {
+  SimpleAggregatesTest::testWindowFunction(
+      {makeSinglePartitionVector(100)}, kFrameOverClauses, kRowsFrameClauses);
+}
+
 VELOX_INSTANTIATE_TEST_SUITE_P(
     SimpleAggregatesTest,
     MultiAggregatesTest,
-    testing::ValuesIn({
-        std::string("sum(c2)"),
-        std::string("min(c2)"),
-        std::string("max(c2)"),
-        std::string("count(c2)"),
-        std::string("avg(c2)"),
-    }));
+    testing::ValuesIn(
+        {std::string("sum(c2)"),
+         std::string("min(c2)"),
+         std::string("max(c2)"),
+         std::string("count(c2)"),
+         std::string("avg(c2)"),
+         std::string("sum(1)")}));
 
 class StringAggregatesTest : public WindowTestBase {};
 

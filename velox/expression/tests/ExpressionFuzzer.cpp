@@ -168,7 +168,7 @@ std::optional<CallableSignature> processSignature(
     const std::string& functionName,
     const exec::FunctionSignature& signature) {
   // Don't support functions with parameterized signatures.
-  if (!signature.typeVariableConstraints().empty()) {
+  if (!signature.variables().empty()) {
     LOG(WARNING) << "Skipping unsupported signature: " << functionName
                  << signature.toString();
     return std::nullopt;
@@ -184,14 +184,14 @@ std::optional<CallableSignature> processSignature(
       .args = {},
       .variableArity = signature.variableArity(),
       .returnType =
-          SignatureBinder::tryResolveType(signature.returnType(), {})};
+          SignatureBinder::tryResolveType(signature.returnType(), {}, {})};
   VELOX_CHECK_NOT_NULL(callable.returnType);
 
   bool onlyPrimitiveTypes = callable.returnType->isPrimitiveType();
 
   // Process each argument and figure out its type.
   for (const auto& arg : signature.argumentTypes()) {
-    auto resolvedType = SignatureBinder::tryResolveType(arg, {});
+    auto resolvedType = SignatureBinder::tryResolveType(arg, {}, {});
 
     // TODO: Check if any input is Generic and substitute all
     // possible primitive types, creating a list of signatures to fuzz.
@@ -267,18 +267,6 @@ std::vector<column_index_t> generateLazyColumnIds(
 
 } // namespace
 
-std::string CallableSignature::toString() const {
-  std::string buf = name;
-  buf.append("( ");
-  for (const auto& arg : args) {
-    buf.append(arg->toString());
-    buf.append(" ");
-  }
-  buf.append(") -> ");
-  buf.append(returnType->toString());
-  return buf;
-}
-
 ExpressionFuzzer::ExpressionFuzzer(
     FunctionSignatureMap signatureMap,
     size_t initialSeed,
@@ -309,24 +297,27 @@ ExpressionFuzzer::ExpressionFuzzer(
           useTypeName(*signature, "long_decimal") ||
           useTypeName(*signature, "short_decimal") ||
           useTypeName(*signature, "decimal") ||
-          useTypeName(*signature, "timestamp with time zone")) {
+          useTypeName(*signature, "timestamp with time zone") ||
+          useTypeName(*signature, "interval day to second") ||
+          (FLAGS_velox_fuzzer_enable_complex_types &&
+           useTypeName(*signature, "unknown"))) {
         continue;
       }
 
-      if (!signature->typeVariableConstraints().empty()) {
+      if (!signature->variables().empty()) {
         // Avoid building signatureTemplates_ if the feature is not enabled.
         if (!FLAGS_velox_fuzzer_enable_complex_types) {
           continue;
         }
 
         std::unordered_set<std::string> typeVariables;
-        for (const auto& variable : signature->typeVariableConstraints()) {
-          typeVariables.insert(variable.name());
+        for (const auto& [name, _] : signature->variables()) {
+          typeVariables.insert(name);
         }
         atLeastOneSupported = true;
         ++supportedFunctionSignatures;
-        signatureTemplates_.emplace_back(
-            function.first, signature, std::move(typeVariables));
+        signatureTemplates_.emplace_back(SignatureTemplate{
+            function.first, signature, std::move(typeVariables)});
       } else if (
           auto callableFunction =
               processSignature(function.first, *signature)) {
@@ -371,7 +362,7 @@ ExpressionFuzzer::ExpressionFuzzer(
   // deterministic order, so that we can deterministically generate
   // expressions across platforms. We just do this once and the vector is
   // small, so it doesn't need to be very efficient.
-  sortConcreteSignatures();
+  sortCallableSignatures(signatures_);
 
   // Generates signaturesMap, which maps a given type to the function
   // signature that returns it.
@@ -380,7 +371,7 @@ ExpressionFuzzer::ExpressionFuzzer(
   }
 
   // Similarly, sort all template signatures.
-  sortSignatureTemplates();
+  sortSignatureTemplates(signatureTemplates_);
 
   // Insert signature templates into signatureTemplateMap_ grouped by their
   // return type base name. If the return type is a type variable, insert the
@@ -419,65 +410,6 @@ void ExpressionFuzzer::seed(size_t seed) {
 
 void ExpressionFuzzer::reSeed() {
   seed(rng_());
-}
-
-void ExpressionFuzzer::sortConcreteSignatures() {
-  std::sort(
-      signatures_.begin(),
-      signatures_.end(),
-      // Returns true if lhs is less (comes before).
-      [](const CallableSignature& lhs, const CallableSignature& rhs) {
-        // The comparison logic is the following:
-        //
-        // 1. Compare based on function name.
-        // 2. If names are the same, compare the number of args.
-        // 3. If number of args are the same, look for any different arg
-        // types.
-        // 4. If all arg types are the same, compare return type.
-        if (lhs.name == rhs.name) {
-          if (lhs.args.size() == rhs.args.size()) {
-            for (size_t i = 0; i < lhs.args.size(); ++i) {
-              if (!lhs.args[i]->kindEquals(rhs.args[i])) {
-                return lhs.args[i]->toString() < rhs.args[i]->toString();
-              }
-            }
-            return lhs.returnType->toString() < rhs.returnType->toString();
-          }
-          return lhs.args.size() < rhs.args.size();
-        }
-        return lhs.name < rhs.name;
-      });
-}
-
-void ExpressionFuzzer::sortSignatureTemplates() {
-  std::sort(
-      signatureTemplates_.begin(),
-      signatureTemplates_.end(),
-      // Returns true if lhs is less (comes before).
-      [](const SignatureTemplate& lhs, const SignatureTemplate& rhs) {
-        // The comparison logic is the following:
-        //
-        // 1. Compare based on function name.
-        // 2. If names are the same, compare the number of args.
-        // 3. If number of args are the same, look for any different arg
-        // types.
-        // 4. If all arg types are the same, compare return type.
-        if (lhs.functionName == rhs.functionName) {
-          auto& leftArgs = lhs.signature->argumentTypes();
-          auto& rightArgs = rhs.signature->argumentTypes();
-          if (leftArgs.size() == rightArgs.size()) {
-            for (size_t i = 0; i < leftArgs.size(); ++i) {
-              if (!(leftArgs[i] == rightArgs[i])) {
-                return leftArgs[i].toString() < rightArgs[i].toString();
-              }
-            }
-            return lhs.signature->returnType().toString() <
-                rhs.signature->returnType().toString();
-          }
-          return leftArgs.size() < rightArgs.size();
-        }
-        return lhs.functionName < rhs.functionName;
-      });
 }
 
 RowVectorPtr ExpressionFuzzer::generateRowVector() {
@@ -652,8 +584,7 @@ core::TypedExprPtr ExpressionFuzzer::generateExpressionFromConcreteSignatures(
   return getCallExprFromCallable(*chosen);
 }
 
-const ExpressionFuzzer::SignatureTemplate*
-ExpressionFuzzer::chooseRandomSignatureTemplate(
+const SignatureTemplate* ExpressionFuzzer::chooseRandomSignatureTemplate(
     const TypePtr& returnType,
     const std::string& typeName) {
   std::vector<const SignatureTemplate*> eligible;
@@ -697,8 +628,7 @@ core::TypedExprPtr ExpressionFuzzer::generateExpressionFromSignatureTemplate(
   VELOX_CHECK_EQ(fuzzer.fuzzArgumentTypes(FLAGS_max_num_varargs), true);
   auto& argumentTypes = fuzzer.argumentTypes();
 
-  CallableSignature callable{
-      chosen->functionName, argumentTypes, false, returnType};
+  CallableSignature callable{chosen->name, argumentTypes, false, returnType};
 
   return getCallExprFromCallable(callable);
 }

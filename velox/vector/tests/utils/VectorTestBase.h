@@ -15,6 +15,9 @@
  */
 #pragma once
 
+#include <folly/Executor.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
+
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/tests/utils/VectorMaker.h"
 
@@ -27,6 +30,13 @@ BufferPtr makeIndicesInReverse(vector_size_t size, memory::MemoryPool* pool);
 
 // TODO: enable ASSERT_EQ for vectors.
 void assertEqualVectors(const VectorPtr& expected, const VectorPtr& actual);
+
+// Verify that the values in both 'expected' and 'actual' vectors is the same
+// but only for the rows marked valid in 'rowsToCompare'.
+void assertEqualVectors(
+    const VectorPtr& expected,
+    const VectorPtr& actual,
+    const SelectivityVector& rowsToCompare);
 
 /// Verify that 'vector' is copyable, by copying all rows.
 void assertCopyableVector(const VectorPtr& vector);
@@ -701,9 +711,11 @@ class VectorTestBase {
     return pool_.get();
   }
 
-  std::unique_ptr<memory::MemoryPool> pool_{
-      memory::getDefaultScopedMemoryPool()};
+  std::shared_ptr<memory::MemoryPool> pool_{memory::getDefaultMemoryPool()};
   velox::test::VectorMaker vectorMaker_{pool_.get()};
+  std::shared_ptr<folly::Executor> executor_{
+      std::make_shared<folly::CPUThreadPoolExecutor>(
+          std::thread::hardware_concurrency())};
 };
 
 } // namespace facebook::velox::test

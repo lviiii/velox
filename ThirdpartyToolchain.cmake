@@ -125,8 +125,12 @@ macro(build_protobuf)
 
     check_cxx_compiler_flag("-Winvalid-noreturn"
                             COMPILER_HAS_W_INVALID_NORETURN)
+
     if(COMPILER_HAS_W_INVALID_NORETURN)
       string(APPEND CMAKE_CXX_FLAGS " -Wno-invalid-noreturn")
+    else()
+      # Currently reproduced on Ubuntu 22.04 with clang 14
+      string(APPEND CMAKE_CXX_FLAGS " -Wno-error")
     endif()
 
     # Fetch the content using previously declared details
@@ -147,11 +151,44 @@ macro(build_protobuf)
 endmacro()
 # ================================ END PROTOBUF ================================
 
+# ================================== PYBIND11 ==================================
+if(DEFINED ENV{VELOX_PYBIND11_URL})
+  set(PYBIND11_SOURCE_URL "$ENV{VELOX_PYBIND11_URL}")
+else()
+  set(VELOX_PYBIND11_BUILD_VERSION 2.10.0)
+  string(CONCAT PYBIND11_SOURCE_URL
+                "https://github.com/pybind/pybind11/archive/refs/tags/"
+                "v${VELOX_PYBIND11_BUILD_VERSION}.tar.gz")
+  set(VELOX_PYBIND11_BUILD_SHA256_CHECKSUM
+      eacf582fa8f696227988d08cfc46121770823839fe9e301a20fbce67e7cd70ec)
+endif()
+
+macro(build_pybind11)
+  message(STATUS "Building Pybind11 from source")
+
+  FetchContent_Declare(
+    pybind11
+    URL ${PYBIND11_SOURCE_URL}
+    URL_HASH SHA256=${VELOX_PYBIND11_BUILD_SHA256_CHECKSUM})
+
+  if(NOT pybind11_POPULATED)
+
+    # Fetch the content using previously declared details
+    FetchContent_Populate(pybind11)
+
+    add_subdirectory(${pybind11_SOURCE_DIR})
+  endif()
+endmacro()
+
+# ================================ END PYBIND11 ================================
+
 macro(build_dependency DEPENDENCY_NAME)
   if("${DEPENDENCY_NAME}" STREQUAL "folly")
     build_folly()
   elseif("${DEPENDENCY_NAME}" STREQUAL "Protobuf")
     build_protobuf()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "pybind11")
+    build_pybind11()
   else()
     message(
       FATAL_ERROR "Unknown thirdparty dependency to build: ${DEPENDENCY_NAME}")
@@ -207,5 +244,32 @@ macro(resolve_dependency DEPENDENCY_NAME)
     find_package(${FIND_PACKAGE_ARGUMENTS} REQUIRED)
   elseif(${DEPENDENCY_NAME}_SOURCE STREQUAL "BUNDLED")
     build_dependency(${DEPENDENCY_NAME})
+  else()
+    message(
+      FATAL_ERROR
+        "Invalid source for ${DEPENDENCY_NAME}: ${${DEPENDENCY_NAME}_SOURCE}")
   endif()
 endmacro()
+
+# By using a macro we don't need to propagate the value into the parent scope.
+macro(set_source DEPENDENCY_NAME)
+  set_with_default(${DEPENDENCY_NAME}_SOURCE ${DEPENDENCY_NAME}_SOURCE
+                   ${VELOX_DEPENDENCY_SOURCE})
+  message(
+    STATUS "Setting ${DEPENDENCY_NAME} source to ${${DEPENDENCY_NAME}_SOURCE}")
+endmacro()
+
+# Set a variable to the value of $ENV{envvar_name} if defined, set to ${DEFAULT}
+# if not defined. If called from within a nested scope the variable will not
+# propagate into outer scopes automatically! Use PARENT_SCOPE.
+function(set_with_default var_name envvar_name default)
+  if(DEFINED ENV{${envvar_name}})
+    set(${var_name}
+        $ENV{${envvar_name}}
+        PARENT_SCOPE)
+  else()
+    set(${var_name}
+        ${default}
+        PARENT_SCOPE)
+  endif()
+endfunction()

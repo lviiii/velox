@@ -227,11 +227,32 @@ class HashProbe : public Operator {
       vector_size_t numInput,
       const folly::F14FastSet<uint32_t>& spillPartitions);
 
+  /// Decode join key inputs and populate 'nonNullInputRows_'.
+  void decodeAndDetectNonNullKeys();
+
   // Invoked when there is no more input from either upstream task or spill
   // input. If there is remaining spilled data, then the last finished probe
   // operator is responsible for notifying the hash build operators to build the
   // next hash table from the spilled data.
   void noMoreInputInternal();
+
+  // Returns the index of the 'match' column in the output for semi project
+  // joins.
+  VectorPtr& matchColumn() const {
+    VELOX_DCHECK(
+        isRightSemiProjectJoin(joinType_) || isLeftSemiProjectJoin(joinType_));
+    return output_->children().back();
+  }
+
+  // Returns true if build side has no data.
+  // NOTE: if build side has triggered spilling, then the first hash table
+  // might be empty, but we still have spilled partition data remaining to
+  // restore. Also note that the spilled partition at build side must not be
+  // empty.
+  bool emptyBuildSide() const {
+    return table_->numDistinct() == 0 && spillPartitionSet_.empty() &&
+        spillInputPartitionIds_.empty();
+  }
 
   // TODO: Define batch size as bytes based on RowContainer row sizes.
   const uint32_t outputBatchSize_;
@@ -289,6 +310,17 @@ class HashProbe : public Operator {
   // Table shared between other HashProbes in other Drivers of the
   // same pipeline.
   std::shared_ptr<BaseHashTable> table_;
+
+  // Indicates whether there was no input. Used for right semi join project.
+  bool noInput_{true};
+
+  // Indicates whether there are rows with null join keys on the build
+  // side. Used by left semi project join.
+  bool buildSideHasNullKeys_{false};
+
+  // Indicates whether there are rows with null join keys on the probe
+  // side. Used by right semi project join.
+  bool probeSideHasNullKeys_{false};
 
   VectorHasher::ScratchMemory scratchMemory_;
 

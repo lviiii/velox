@@ -123,18 +123,14 @@ class RowVector : public BaseVector {
       vector_size_t sourceIndex,
       vector_size_t count) override;
 
-  void copyRanges(
-      const BaseVector* source,
-      const folly::Range<const CopyRange*>& ranges) override {
-    for (auto& range : ranges) {
-      copy(source, range.targetIndex, range.sourceIndex, range.count);
-    }
-  }
-
   void copy(
       const BaseVector* source,
       const SelectivityVector& rows,
       const vector_size_t* toSourceRow) override;
+
+  void copyRanges(
+      const BaseVector* source,
+      const folly::Range<const CopyRange*>& ranges) override;
 
   uint64_t retainedSize() const override {
     auto size = BaseVector::retainedSize();
@@ -254,6 +250,10 @@ struct ArrayVectorBase : BaseVector {
     offsets_->asMutable<vector_size_t>()[i] = offset;
     sizes_->asMutable<vector_size_t>()[i] = size;
   }
+
+  /// Verify that an ArrayVector/MapVector does not contain overlapping [offset,
+  /// size] ranges. Throws in case overlaps are found.
+  void checkRanges() const;
 
  protected:
   ArrayVectorBase(

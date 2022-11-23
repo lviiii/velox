@@ -30,7 +30,6 @@ add_library(
   CacheInputStream.cpp
   ColumnSelector.cpp
   Common.cpp
-  DataBuffer.cpp
   DataSink.cpp
   DecoderUtil.cpp
   DirectDecoder.cpp
@@ -46,6 +45,7 @@ add_library(
   ScanSpec.cpp
   ColumnLoader.cpp
   SelectiveColumnReader.cpp
+  SelectiveRepeatedColumnReader.cpp
   SelectiveStructColumnReader.cpp
   SeekableInputStream.cpp
   TypeWithId.cpp)

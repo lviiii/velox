@@ -17,19 +17,23 @@
 #include "velox/expression/tests/ExpressionVerifier.h"
 #include "velox/common/base/Fs.h"
 #include "velox/expression/Expr.h"
+#include "velox/expression/tests/FuzzerToolkit.h"
 #include "velox/vector/VectorSaver.h"
 #include "velox/vector/fuzzer/VectorFuzzer.h"
+#include "velox/vector/tests/utils/VectorMaker.h"
 
 namespace facebook::velox::test {
-
 namespace {
 
-// File names used to persist data required for reproducing a failed test case.
+// File names used to persist data required for reproducing a failed test
+// case.
 static constexpr std::string_view kInputVectorFileName = "input_vector";
 static constexpr std::string_view kIndicesOfLazyColumnsFileName =
     "indices_of_lazy_columns";
 static constexpr std::string_view kResultVectorFileName = "result_vector";
 static constexpr std::string_view kExpressionInSqlFileName = "sql";
+static constexpr std::string_view kComplexConstantsFileName =
+    "complex_constants";
 
 void logRowVector(const RowVectorPtr& rowVector) {
   if (rowVector == nullptr) {
@@ -48,81 +52,6 @@ void logRowVector(const RowVectorPtr& rowVector) {
       LOG(INFO) << "\tAt " << i << ": " << rowVector->toString(i);
     }
   }
-}
-
-bool isInvalidArgumentOrUnsupported(const VeloxException& ex) {
-  return ex.errorCode() == "INVALID_ARGUMENT" ||
-      ex.errorCode() == "UNSUPPORTED";
-}
-
-void compareExceptions(
-    const VeloxException& left,
-    const VeloxException& right) {
-  // Error messages sometimes differ; check at least error codes.
-  // Since the common path may peel the input encoding off, whereas the
-  // simplified path flatten input vectors, the common and the simplified
-  // paths may evaluate the input rows in different orders and hence throw
-  // different exceptions depending on which bad input they come across
-  // first. We have seen this happen for the format_datetime Presto function
-  // that leads to unmatched error codes UNSUPPORTED vs. INVALID_ARGUMENT.
-  // Therefore, we intentionally relax the comparision here.
-  if (left.errorCode() == right.errorCode() ||
-      (isInvalidArgumentOrUnsupported(left) &&
-       isInvalidArgumentOrUnsupported(right))) {
-    VELOX_CHECK_EQ(left.errorSource(), right.errorSource());
-    VELOX_CHECK_EQ(left.exceptionName(), right.exceptionName());
-    if (left.message() != right.message()) {
-      LOG(WARNING) << "Two different VeloxExceptions were thrown:\n\t"
-                   << left.message() << "\nand\n\t" << right.message();
-    }
-  } else {
-    LOG(ERROR) << left.what();
-    LOG(ERROR) << right.what();
-    VELOX_FAIL(
-        "Common path and simplified path threw different exceptions: {} vs. {}",
-        left.message(),
-        right.message());
-  }
-}
-
-void compareExceptions(
-    std::exception_ptr commonPtr,
-    std::exception_ptr simplifiedPtr) {
-  // If we don't have two exceptions, fail.
-  if (!commonPtr || !simplifiedPtr) {
-    if (!commonPtr) {
-      LOG(ERROR) << "Only simplified path threw exception:";
-      std::rethrow_exception(simplifiedPtr);
-    }
-    LOG(ERROR) << "Only common path threw exception:";
-    std::rethrow_exception(commonPtr);
-  }
-
-  // Otherwise, make sure the exceptions are the same.
-  try {
-    std::rethrow_exception(commonPtr);
-  } catch (const VeloxException& ve1) {
-    try {
-      std::rethrow_exception(simplifiedPtr);
-    } catch (const VeloxException& ve2) {
-      compareExceptions(ve1, ve2);
-      return;
-    } catch (const std::exception& e2) {
-      LOG(WARNING) << "Two different exceptions were thrown:\n\t"
-                   << ve1.message() << "\nand\n\t" << e2.what();
-    }
-  } catch (const std::exception& e1) {
-    try {
-      std::rethrow_exception(simplifiedPtr);
-    } catch (const std::exception& e2) {
-      if (e1.what() != e2.what()) {
-        LOG(WARNING) << "Two different std::exceptions were thrown:\n\t"
-                     << e1.what() << "\nand\n\t" << e2.what();
-      }
-      return;
-    }
-  }
-  VELOX_FAIL("Got two incompatible exceptions.");
 }
 
 void compareVectors(const VectorPtr& left, const VectorPtr& right) {
@@ -151,8 +80,8 @@ void compareVectors(const VectorPtr& left, const VectorPtr& right) {
 }
 
 // Returns a copy of 'rowVector' but with the columns having indices listed in
-// 'columnsToWrapInLazy' wrapped in lazy encoding. 'columnsToWrapInLazy' should
-// be a sorted list of column indices.
+// 'columnsToWrapInLazy' wrapped in lazy encoding. 'columnsToWrapInLazy'
+// should be a sorted list of column indices.
 RowVectorPtr wrapColumnsInLazy(
     RowVectorPtr rowVector,
     const std::vector<column_index_t>& columnsToWrapInLazy) {
@@ -204,6 +133,9 @@ bool ExpressionVerifier::verify(
   // Store data and expression in case of reproduction.
   VectorPtr copiedResult;
   std::string sql;
+
+  // Complex constants that aren't all expressable in sql
+  std::vector<VectorPtr> complexConstants;
   // Deep copy to preserve the initial state of result vector.
   if (!options_.reproPersistPath.empty()) {
     if (resultVector) {
@@ -215,13 +147,14 @@ bool ExpressionVerifier::verify(
     try {
       sql = exec::ExprSet(std::move(typedExprs), execCtx_, false)
                 .expr(0)
-                ->toSql();
+                ->toSql(&complexConstants);
     } catch (const std::exception& e) {
       LOG(WARNING) << "Failed to generate SQL: " << e.what();
       sql = "<failed to generate>";
     }
     if (options_.persistAndRunOnce) {
-      persistReproInfo(rowVector, columnsToWrapInLazy, copiedResult, sql);
+      persistReproInfo(
+          rowVector, columnsToWrapInLazy, copiedResult, sql, complexConstants);
     }
   }
 
@@ -294,16 +227,17 @@ bool ExpressionVerifier::verify(
     }
   } catch (...) {
     if (!options_.reproPersistPath.empty() && !options_.persistAndRunOnce) {
-      persistReproInfo(rowVector, columnsToWrapInLazy, copiedResult, sql);
+      persistReproInfo(
+          rowVector, columnsToWrapInLazy, copiedResult, sql, complexConstants);
     }
     throw;
   }
 
   if (!options_.reproPersistPath.empty() && options_.persistAndRunOnce) {
-    // A guard to make sure it runs only once with persistAndRunOnce flag turned
-    // on. It shouldn't reach here normally since the flag is used to persist
-    // repro info for crash failures. But if it hasn't crashed by now, we still
-    // don't want another iteration.
+    // A guard to make sure it runs only once with persistAndRunOnce flag
+    // turned on. It shouldn't reach here normally since the flag is used to
+    // persist repro info for crash failures. But if it hasn't crashed by now,
+    // we still don't want another iteration.
     LOG(WARNING)
         << "Iteration succeeded with --persist_and_run_once flag enabled "
            "(expecting crash failure)";
@@ -317,11 +251,13 @@ void ExpressionVerifier::persistReproInfo(
     const VectorPtr& inputVector,
     std::vector<column_index_t> columnsToWrapInLazy,
     const VectorPtr& resultVector,
-    const std::string& sql) {
+    const std::string& sql,
+    const std::vector<VectorPtr>& complexConstants) {
   std::string inputPath;
   std::string lazyListPath;
   std::string resultPath;
   std::string sqlPath;
+  std::string complexConstantsPath;
 
   const auto basePath = options_.reproPersistPath.c_str();
   if (!common::generateFileDirectory(basePath)) {
@@ -329,7 +265,7 @@ void ExpressionVerifier::persistReproInfo(
   }
 
   // Create a new directory
-  auto dirPath = generateFolderPath(basePath, "expressionVerifier");
+  auto dirPath = common::generateTempFolderPath(basePath, "expressionVerifier");
   if (!dirPath.has_value()) {
     LOG(INFO) << "Failed to create directory for persisting repro info.";
     return;
@@ -371,6 +307,20 @@ void ExpressionVerifier::persistReproInfo(
   } catch (std::exception& e) {
     sqlPath = e.what();
   }
+  // Saving complex constants
+  if (!complexConstants.empty()) {
+    complexConstantsPath =
+        fmt::format("{}/{}", dirPath->c_str(), kComplexConstantsFileName);
+    try {
+      saveVectorToFile(
+          VectorMaker(complexConstants[0]->pool())
+              .rowVector(complexConstants)
+              .get(),
+          complexConstantsPath.c_str());
+    } catch (std::exception& e) {
+      complexConstantsPath = e.what();
+    }
+  }
 
   std::stringstream ss;
   ss << "Persisted input: --input_path " << inputPath;
@@ -381,6 +331,9 @@ void ExpressionVerifier::persistReproInfo(
   if (!columnsToWrapInLazy.empty()) {
     // TODO: add support for consuming this in ExpressionRunner
     ss << " --lazy_column_list_path " << lazyListPath;
+  }
+  if (!complexConstants.empty()) {
+    ss << " --complex_constant_path " << complexConstantsPath;
   }
   LOG(INFO) << ss.str();
 }

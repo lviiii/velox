@@ -141,7 +141,7 @@ class AverageAggregate : public exec::Aggregate {
       if (!decodedRaw_.isNullAt(0)) {
         const TInput value = decodedRaw_.valueAt<TInput>(0);
         const auto numRows = rows.countSelected();
-        updateNonNullValue(group, numRows, TAccumulator(value * numRows));
+        updateNonNullValue(group, numRows, TAccumulator(value) * numRows);
       } else {
         // Spark expects the result of partial avg to be non-nullable.
         exec::Aggregate::clearNull(group);

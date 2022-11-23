@@ -794,7 +794,7 @@ TEST_F(AggregationTest, partialAggregationMaybeReservationReleaseCheck) {
   const int64_t kMaxUserMemoryUsage = 2 * kMaxPartialMemoryUsage;
   // Make sure partial aggregation runs out of memory after first batch.
   CursorParameters params;
-  params.queryCtx = core::QueryCtx::createForTest();
+  params.queryCtx = std::make_shared<core::QueryCtx>(executor_.get());
   params.queryCtx->setConfigOverridesUnsafe({
       {QueryConfig::kMaxPartialAggregationMemory,
        std::to_string(kMaxPartialMemoryUsage)},
@@ -859,7 +859,7 @@ TEST_F(AggregationTest, spillWithMemoryLimit) {
     SCOPED_TRACE(testData.debugString());
 
     auto tempDirectory = exec::test::TempDirectoryPath::create();
-    auto queryCtx = core::QueryCtx::createForTest();
+    auto queryCtx = std::make_shared<core::QueryCtx>(executor_.get());
     queryCtx->pool()->setMemoryUsageTracker(
         velox::memory::MemoryUsageTracker::create(kMaxBytes, 0, kMaxBytes));
     auto results = AssertQueryBuilder(
@@ -964,7 +964,7 @@ DEBUG_ONLY_TEST_F(AggregationTest, spillWithEmptyPartition) {
             .copyResults(pool_.get());
 
     auto tempDirectory = exec::test::TempDirectoryPath::create();
-    auto queryCtx = core::QueryCtx::createForTest();
+    auto queryCtx = std::make_shared<core::QueryCtx>(executor_.get());
     queryCtx->pool()->setMemoryUsageTracker(
         velox::memory::MemoryUsageTracker::create(kMaxBytes, 0, kMaxBytes));
 
@@ -1084,7 +1084,7 @@ TEST_F(AggregationTest, spillWithNonSpillingPartition) {
           .copyResults(pool_.get());
 
   auto tempDirectory = exec::test::TempDirectoryPath::create();
-  auto queryCtx = core::QueryCtx::createForTest();
+  auto queryCtx = std::make_shared<core::QueryCtx>(executor_.get());
   queryCtx->pool()->setMemoryUsageTracker(
       velox::memory::MemoryUsageTracker::create(kMaxBytes, 0, kMaxBytes));
 
@@ -1245,6 +1245,66 @@ TEST_F(AggregationTest, groupingSets) {
       "SELECT k1, k2, count(1), sum(a), max(b) FROM tmp GROUP BY ROLLUP (k1, k2)");
 }
 
+TEST_F(AggregationTest, groupingSetsOutput) {
+  vector_size_t size = 1'000;
+  auto data = makeRowVector(
+      {"k1", "k2", "a", "b"},
+      {
+          makeFlatVector<int64_t>(size, [](auto row) { return row % 11; }),
+          makeFlatVector<int64_t>(size, [](auto row) { return row % 17; }),
+          makeFlatVector<int64_t>(size, [](auto row) { return row; }),
+          makeFlatVector<StringView>(
+              size,
+              [](auto row) { return StringView(std::string(row % 12, 'x')); }),
+      });
+
+  createDuckDbTable({data});
+
+  core::PlanNodePtr reversedOrderGroupIdNode;
+  core::PlanNodePtr orderGroupIdNode;
+  auto reversedOrderPlan =
+      PlanBuilder()
+          .values({data})
+          .groupId({{"k2", "k1"}, {}}, {"a", "b"})
+          .capturePlanNode(reversedOrderGroupIdNode)
+          .singleAggregation(
+              {"k2", "k1", "group_id"},
+              {"count(1) as count_1", "sum(a) as sum_a", "max(b) as max_b"})
+          .project({"k1", "k2", "count_1", "sum_a", "max_b"})
+          .planNode();
+
+  auto orderPlan =
+      PlanBuilder()
+          .values({data})
+          .groupId({{"k1", "k2"}, {}}, {"a", "b"})
+          .capturePlanNode(orderGroupIdNode)
+          .singleAggregation(
+              {"k1", "k2", "group_id"},
+              {"count(1) as count_1", "sum(a) as sum_a", "max(b) as max_b"})
+          .project({"k1", "k2", "count_1", "sum_a", "max_b"})
+          .planNode();
+
+  auto reversedOrderExpectedRowType =
+      ROW({"k2", "k1", "a", "b", "group_id"},
+          {BIGINT(), BIGINT(), BIGINT(), VARCHAR(), BIGINT()});
+  auto orderExpectedRowType =
+      ROW({"k1", "k2", "a", "b", "group_id"},
+          {BIGINT(), BIGINT(), BIGINT(), VARCHAR(), BIGINT()});
+  ASSERT_EQ(
+      *reversedOrderGroupIdNode->outputType(), *reversedOrderExpectedRowType);
+  ASSERT_EQ(*orderGroupIdNode->outputType(), *orderExpectedRowType);
+
+  CursorParameters orderParams;
+  orderParams.planNode = orderPlan;
+  auto orderResult = readCursor(orderParams, [](Task*) {});
+
+  CursorParameters reversedOrderParams;
+  reversedOrderParams.planNode = reversedOrderPlan;
+  auto reversedOrderResult = readCursor(reversedOrderParams, [](Task*) {});
+
+  assertEqualResults(orderResult.second, reversedOrderResult.second);
+}
+
 TEST_F(AggregationTest, outputBatchSizeCheckWithSpill) {
   rowType_ = ROW({"c0", "c1", "c2"}, {INTEGER(), INTEGER(), INTEGER()});
   VectorFuzzer::Options options;
@@ -1289,6 +1349,63 @@ TEST_F(AggregationTest, outputBatchSizeCheckWithSpill) {
         folly::divCeil(opStats.outputPositions, outputBufferSize),
         opStats.outputVectors);
   }
+}
+
+TEST_F(AggregationTest, distinctWithSpilling) {
+  auto vectors = makeVectors(rowType_, 10, 100);
+  createDuckDbTable(vectors);
+  auto spillDirectory = exec::test::TempDirectoryPath::create();
+  core::PlanNodeId aggrNodeId;
+  auto task = AssertQueryBuilder(duckDbQueryRunner_)
+                  .config(QueryConfig::kSpillEnabled, "true")
+                  .config(QueryConfig::kAggregationSpillEnabled, "true")
+                  .config(QueryConfig::kSpillPath, spillDirectory->path)
+                  .config(QueryConfig::kTestingSpillPct, "100")
+                  .plan(PlanBuilder()
+                            .values(vectors)
+                            .singleAggregation({"c0"}, {}, {})
+                            .capturePlanNodeId(aggrNodeId)
+                            .planNode())
+                  .assertResults("SELECT distinct c0 FROM tmp");
+  // Verify that spilling is not triggered.
+  ASSERT_EQ(toPlanStats(task->taskStats()).at(aggrNodeId).spilledBytes, 0);
+}
+
+TEST_F(AggregationTest, preGroupedAggregationWithSpilling) {
+  std::vector<RowVectorPtr> vectors;
+  int64_t val = 0;
+  for (int32_t i = 0; i < 4; ++i) {
+    vectors.push_back(makeRowVector(
+        {// Pre-grouped key.
+         makeFlatVector<int64_t>(10, [&](auto /*row*/) { return val++ / 5; }),
+         // Payload.
+         makeFlatVector<int64_t>(10, [](auto row) { return row; }),
+         makeFlatVector<int64_t>(10, [](auto row) { return row; })}));
+  }
+  createDuckDbTable(vectors);
+  auto spillDirectory = exec::test::TempDirectoryPath::create();
+  core::PlanNodeId aggrNodeId;
+  auto task =
+      AssertQueryBuilder(duckDbQueryRunner_)
+          .config(QueryConfig::kSpillEnabled, "true")
+          .config(QueryConfig::kAggregationSpillEnabled, "true")
+          .config(QueryConfig::kSpillPath, spillDirectory->path)
+          .config(QueryConfig::kTestingSpillPct, "100")
+          .plan(PlanBuilder()
+                    .values(vectors)
+                    .aggregation(
+                        {"c0", "c1"},
+                        {"c0"},
+                        {"sum(c2)"},
+                        {},
+                        core::AggregationNode::Step::kSingle,
+                        false)
+                    .capturePlanNodeId(aggrNodeId)
+                    .planNode())
+          .assertResults("SELECT c0, c1, sum(c2) FROM tmp GROUP BY c0, c1");
+  auto stats = task->taskStats().pipelineStats;
+  // Verify that spilling is not triggered.
+  ASSERT_EQ(toPlanStats(task->taskStats()).at(aggrNodeId).spilledBytes, 0);
 }
 
 TEST_F(AggregationTest, groupingSetsOutput) {

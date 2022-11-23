@@ -16,28 +16,35 @@
 #pragma once
 
 #include <random>
+#include <unordered_map>
+
 #include "velox/expression/FunctionSignature.h"
 #include "velox/expression/SignatureBinder.h"
 #include "velox/type/Type.h"
 
 namespace facebook::velox::test {
 
-/// For function signatures containing type variables, try generate a list of
-/// arguments types such that the function taking these arguments returns the
-/// given type. If there are type variables unbounded by the return type,
-/// generate a random type for them with rng_.
+/// For function signatures using type variables, generates a list of
+/// arguments types. Optionally, allows to specify a desired return type. If
+/// specified, the return type acts as a constraint on the possible set of
+/// argument types.
 class ArgumentTypeFuzzer {
  public:
+  ArgumentTypeFuzzer(
+      const exec::FunctionSignature& signature,
+      std::mt19937& rng)
+      : ArgumentTypeFuzzer(signature, nullptr, rng) {}
+
   ArgumentTypeFuzzer(
       const exec::FunctionSignature& signature,
       const TypePtr& returnType,
       std::mt19937& rng)
       : signature_{signature}, returnType_{returnType}, rng_{rng} {}
 
-  /// Generate random argument types if returnType_ can be bound to the return
-  /// type of signature_. Return true if the generation succeeds, false
-  /// otherwise. If signature_ has variable arity, repeat the last argument at
-  /// most maxVariadicArgs times.
+  /// Generate random argument types. If the desired returnType has been
+  /// specified, checks that it can be bound to the return type of signature_.
+  /// Return true if the generation succeeds, false otherwise. If signature_ has
+  /// variable arity, repeat the last argument at most maxVariadicArgs times.
   bool fuzzArgumentTypes(uint32_t maxVariadicArgs);
 
   /// Return the generated list of argument types. This function should be
@@ -47,6 +54,10 @@ class ArgumentTypeFuzzer {
   }
 
  private:
+  /// Return the variables in the signature.
+  auto& variables() const {
+    return signature_.variables();
+  }
   /// Bind each type variable that is not determined by the return type to a
   /// randomly generated type.
   void determineUnboundedTypeVariables();

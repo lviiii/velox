@@ -17,7 +17,6 @@
 #include "velox/substrait/SubstraitParser.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/substrait/TypeUtils.h"
-#include "iostream"
 
 namespace facebook::velox::substrait {
 
@@ -287,8 +286,6 @@ std::string SubstraitParser::findVeloxFunction(
     uint64_t id) const {
   std::string funcSpec = findSubstraitFuncSpec(functionMap, id);
   std::string funcName = getSubFunctionName(funcSpec);
-  std::cout << "Parsing Velox Function: " << funcName << 
-    ", funcSpec: " << funcSpec << std::endl;
   return mapToVeloxFunction(funcName);
 }
 
