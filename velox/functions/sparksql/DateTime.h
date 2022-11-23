@@ -226,35 +226,22 @@ struct DayFunction : public InitSessionTimezone<T>,
                      public TimestampWithTimezoneSupport<T> {
   VELOX_DEFINE_FUNCTION_TYPES(T);
 
+  template <typename TInput>
   FOLLY_ALWAYS_INLINE void call(
-      int32_t& result,
+      TInput& result,
       const arg_type<Timestamp>& timestamp) {
     result = getDateTime(timestamp, this->timeZone_).tm_mday;
   }
 
-  FOLLY_ALWAYS_INLINE void call(
-      int64_t& result,
-      const arg_type<Timestamp>& timestamp) {
-    result = getDateTime(timestamp, this->timeZone_).tm_mday;
-  }
 
-  FOLLY_ALWAYS_INLINE void call(int32_t& result, const arg_type<Date>& date) {
+  template <typename TInput>
+  FOLLY_ALWAYS_INLINE void call(TInput& result, const arg_type<Date>& date) {
     result = getDateTime(date).tm_mday;
   }
 
-  FOLLY_ALWAYS_INLINE void call(int64_t& result, const arg_type<Date>& date) {
-    result = getDateTime(date).tm_mday;
-  }
-
+  template <typename TInput>
   FOLLY_ALWAYS_INLINE void call(
-      int32_t& result,
-      const arg_type<TimestampWithTimezone>& timestampWithTimezone) {
-    auto timestamp = this->toTimestamp(timestampWithTimezone);
-    result = getDateTime(timestamp, nullptr).tm_mday;
-  }
-
-  FOLLY_ALWAYS_INLINE void call(
-      int64_t& result,
+      TInput& result,
       const arg_type<TimestampWithTimezone>& timestampWithTimezone) {
     auto timestamp = this->toTimestamp(timestampWithTimezone);
     result = getDateTime(timestamp, nullptr).tm_mday;
