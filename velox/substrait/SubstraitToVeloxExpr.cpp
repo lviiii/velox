@@ -211,11 +211,19 @@ SubstraitVeloxExprConverter::toVeloxExpr(
       return std::make_shared<core::ConstantTypedExpr>(
           variant(substraitLit.string()));
     case ::substrait::Expression_Literal::LiteralTypeCase::kNull: {
-      std::cout << "substraitLit.null().kind_case output: " << substraitLit.null().kind_case() << std::endl;
-      auto veloxType =
-          toVeloxType(subParser_->parseType(substraitLit.null())->type);
-      return std::make_shared<core::ConstantTypedExpr>(
+
+      try {
+        std::cout << "castExpr output: " << substraitLit.null().kind_case() << std::endl;
+        auto veloxType =
+            toVeloxType(subParser_->parseType(substraitLit.null())->type);
+        return std::make_shared<core::ConstantTypedExpr>(
           veloxType, variant::null(veloxType->kind()));
+      } catch (const VeloxException& err) {
+        std::cout << "Type is not supported in ProjectRel due to:"
+                  << err.message() << std::endl;
+        // VELOX_UNSUPPORTED("Invalid from type in casting: {}", substraitLit.null().kind_case());
+      }
+      VELOX_UNSUPPORTED("Invalid from type in casting: {}", substraitLit.null().kind_case());
     }
     case ::substrait::Expression_Literal::LiteralTypeCase::kDate:
       return std::make_shared<core::ConstantTypedExpr>(
