@@ -120,6 +120,8 @@ SubstraitVeloxExprConverter::toVeloxExpr(
   }
   const auto& veloxFunction =
       subParser_->findVeloxFunction(functionMap_, sFunc.function_reference());
+  std::cout << "veloxFunction:" << veloxFunction <<
+    ", output_type" << sFunc.output_type().kind_case() << std::endl;
   std::string typeName = subParser_->parseType(sFunc.output_type())->type;
   std::cout << "Parsing Velox function: " << veloxFunction << 
     ", output type: " << typeName << std::endl;
@@ -249,8 +251,14 @@ SubstraitVeloxExprConverter::toVeloxExpr(
 
   // TODO: refactor this part for input type validation.
   for (const auto& input : inputs) {
+    std::cout << "castExpr: " << input->type()->kind() << std::endl;
     switch (input->type()->kind()) {
       case TypeKind::ARRAY: {
+        // Cast from array type is not supported. See CastExpr::applyCast.
+        VELOX_UNSUPPORTED("Invalid from type in casting: {}", input->type());
+      }
+      case TypeKind::SHORT_DECIMAL:
+      case TypeKind::LONG_DECIMAL: {
         // Cast from array type is not supported. See CastExpr::applyCast.
         VELOX_UNSUPPORTED("Invalid from type in casting: {}", input->type());
       }
