@@ -147,7 +147,7 @@ void registerFunctions(const std::string& prefix) {
   exec::registerStatefulVectorFunction(
       prefix + "sort_array", sortArraySignatures(), makeSortArray);
 
-// Register DateTime functions.
+  // Register DateTime functions.
   registerFunction<MillisecondFunction, int32_t, Date>(
       {prefix + "millisecond"});
   registerFunction<MillisecondFunction, int32_t, Timestamp>(

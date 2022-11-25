@@ -98,17 +98,13 @@ SubstraitVeloxExprConverter::toExtractExpr(
     exprParams.reserve(1);
     exprParams.emplace_back(params[1]);
     std::cout << "toExtractExpr from: " << from << std::endl;
-    if (from == "YEAR") {
+    auto iter = extractDatetimeFunctionMap_.find(from);
+    if (iter != extractDatetimeFunctionMap_.end()) {
       return std::make_shared<const core::CallTypedExpr>(
-          outputType, std::move(exprParams), "year");
-    } else if (from == "DAY") {
-      return std::make_shared<const core::CallTypedExpr>(
-          outputType, std::move(exprParams), "day");
-    } else if (from == "DAY_OF_WEEK") {
-      return std::make_shared<const core::CallTypedExpr>(
-          outputType, std::move(exprParams), "day_of_week");
+        outputType, std::move(exprParams), iter->second);
+    } else {
+      VELOX_NYI("Extract from {} not supported.", from);
     }
-    VELOX_NYI("Extract from {} not supported.", from);
   }
   VELOX_FAIL("Constant is expected to be the first parameter in extract.");
 }
