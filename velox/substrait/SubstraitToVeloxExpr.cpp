@@ -211,7 +211,7 @@ SubstraitVeloxExprConverter::toVeloxExpr(
       return std::make_shared<core::ConstantTypedExpr>(
           variant(substraitLit.string()));
     case ::substrait::Expression_Literal::LiteralTypeCase::kNull: {
-      std::cout << "castExpr output: " << substraitLit.null().kind_case() << std::endl;
+      std::cout << "substraitLit.null().kind_case output: " << substraitLit.null().kind_case() << std::endl;
       auto veloxType =
           toVeloxType(subParser_->parseType(substraitLit.null())->type);
       return std::make_shared<core::ConstantTypedExpr>(
