@@ -241,7 +241,7 @@ std::shared_ptr<const core::ITypedExpr>
 SubstraitVeloxExprConverter::toVeloxExpr(
     const ::substrait::Expression::Cast& castExpr,
     const RowTypePtr& inputType) {
-  std::cout << "castExpr output: " << castExpr.type()->kind() << std::endl;
+  std::cout << "castExpr output: " << castExpr.type().kind_case() << std::endl;
   auto substraitType = subParser_->parseType(castExpr.type());
   auto type = toVeloxType(substraitType->type);
   // TODO add flag in substrait after. now is set false.
