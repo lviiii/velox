@@ -97,10 +97,16 @@ SubstraitVeloxExprConverter::toExtractExpr(
     std::vector<std::shared_ptr<const core::ITypedExpr>> exprParams;
     exprParams.reserve(1);
     exprParams.emplace_back(params[1]);
+    std::cout << "toExtractExpr from: " << from << std::endl;
     if (from == "YEAR") {
-      // Use PrestoSql year function.
       return std::make_shared<const core::CallTypedExpr>(
           outputType, std::move(exprParams), "year");
+    } else if (from == "DAY") {
+      return std::make_shared<const core::CallTypedExpr>(
+          outputType, std::move(exprParams), "day");
+    } else if (from == "DAY_OF_WEEK") {
+      return std::make_shared<const core::CallTypedExpr>(
+          outputType, std::move(exprParams), "day_of_week");
     }
     VELOX_NYI("Extract from {} not supported.", from);
   }

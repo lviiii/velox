@@ -161,9 +161,9 @@ void registerFunctions(const std::string& prefix) {
   registerFunction<HourFunction, int32_t, Timestamp>(
       {prefix + "hour"});
   registerFunction<DayFunction, int32_t, Date>(
-      {prefix + "day_of_month"});
+      {prefix + "day"});
   registerFunction<DayFunction, int32_t, Timestamp>(
-      {prefix + "day_of_month"});
+      {prefix + "day"});
   registerFunction<DayOfWeekFunction, int32_t, Date>(
       {prefix + "day_of_week"});
   registerFunction<DayOfWeekFunction, int32_t, Timestamp>(
