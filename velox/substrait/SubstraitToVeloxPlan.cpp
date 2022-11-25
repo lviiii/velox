@@ -345,6 +345,8 @@ std::shared_ptr<const core::PlanNode> SubstraitVeloxPlanConverter::toVeloxAgg(
       aggParams.emplace_back(
           exprConverter_->toVeloxExpr(arg.value(), inputType));
     }
+    std::cout << "aggVeloxType output: " << aggFunction.output_type().kind_case() << std::endl;
+
     auto aggVeloxType =
         toVeloxType(subParser_->parseType(aggFunction.output_type())->type);
     auto aggExpr = std::make_shared<const core::CallTypedExpr>(
