@@ -26,6 +26,7 @@ std::shared_ptr<SubstraitParser::SubstraitType> SubstraitParser::parseType(
   // The used type names should be aligned with those in Velox.
   std::string typeName;
   ::substrait::Type_Nullability nullability;
+  std::cout << "substraitType:"  << substraitType.kind_case() << std::endl;
   switch (substraitType.kind_case()) {
     case ::substrait::Type::KindCase::kBool: {
       typeName = "BOOLEAN";
