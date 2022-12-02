@@ -219,6 +219,9 @@ SubstraitVeloxExprConverter::toVeloxExpr(
       // parsed.
       return std::make_shared<core::ConstantTypedExpr>(
           variant(Date(substraitLit.date())));
+    case ::substrait::Expression_Literal::LiteralTypeCase::kTimestamp:
+      return std::make_shared<core::ConstantTypedExpr>(
+          variant(substraitLit.timestamp()));
     case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
       // Literals in List are put in a constant vector.
       std::vector<::substrait::Expression::Literal> literals;

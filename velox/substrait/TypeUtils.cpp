@@ -119,6 +119,8 @@ TypePtr toVeloxType(const std::string& typeName) {
     }
     case TypeKind::DATE:
       return DATE();
+    case TypeKind::TIMESTAMP:
+      return TIMESTAMP();
     case TypeKind::UNKNOWN:
       return UNKNOWN();
     default:
