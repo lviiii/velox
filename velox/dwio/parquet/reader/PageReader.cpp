@@ -334,6 +334,22 @@ void PageReader::prepareDictionary(const PageHeader& pageHeader) {
       }
       break;
     }
+    case thrift::Type::INT96: {
+      int32_t typeSize = sizeof(uint64_t);
+      auto numBytes = dictionary_.numValues * typeSize;
+      dictionary_.values = AlignedBuffer::allocate<char>(numBytes, &pool_);
+      if (pageData_) {
+        memcpy(dictionary_.values->asMutable<char>(), pageData_, numBytes);
+      } else {
+        dwio::common::readBytes(
+            numBytes,
+            inputStream_.get(),
+            dictionary_.values->asMutable<char>(),
+            bufferStart_,
+            bufferEnd_);
+      }
+      break;
+    }
     case thrift::Type::BYTE_ARRAY: {
       dictionary_.values =
           AlignedBuffer::allocate<StringView>(dictionary_.numValues, &pool_);

@@ -272,6 +272,12 @@ SubstraitVeloxExprConverter::toVeloxExpr(
         // Cast from array type is not supported. See CastExpr::applyCast.
         VELOX_UNSUPPORTED("Invalid from type in casting: {}", input->type());
       }
+      case TypeKind::VARCHAR: {
+        if (substraitType->type == "TIMESTAMP") {
+          // Cast from string to timestamp is not supported. See CastExpr::applyCast.
+          VELOX_UNSUPPORTED("Invalid from type in casting: {}", input->type());
+        }
+      }
       default: {
       }
     }
