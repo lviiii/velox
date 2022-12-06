@@ -16,6 +16,7 @@
 
 #include "velox/substrait/SubstraitToVeloxPlanValidator.h"
 #include "TypeUtils.h"
+#include "velox/expression/SignatureBinder.h"
 
 namespace facebook::velox::substrait {
 
@@ -41,8 +42,8 @@ bool SubstraitToVeloxPlanValidator::validateInputTypes(
     try {
       types.emplace_back(toVeloxType(subParser_->parseType(sType)->type));
     } catch (const VeloxException& err) {
-      std::cout << "Type is not supported in ProjectRel due to:"
-                << err.message() << std::endl;
+      std::cout << "Type is not supported due to:" << err.message()
+                << std::endl;
       return false;
     }
   }
@@ -99,7 +100,7 @@ bool SubstraitToVeloxPlanValidator::validate(
     for (const auto& expr : aggExprs) {
       expressions.emplace_back(exprConverter_->toVeloxExpr(expr, rowType));
     }
-    // Try to compile the expressions. If there is any unregistred funciton or
+    // Try to compile the expressions. If there is any unregistered function or
     // mismatched type, exception will be thrown.
     exec::ExprSet exprSet(std::move(expressions), execCtx_);
   } catch (const VeloxException& err) {
@@ -232,7 +233,7 @@ bool SubstraitToVeloxPlanValidator::validate(
     for (const auto& expr : projectExprs) {
       expressions.emplace_back(exprConverter_->toVeloxExpr(expr, rowType));
     }
-    // Try to compile the expressions. If there is any unregistred funciton or
+    // Try to compile the expressions. If there is any unregistered function or
     // mismatched type, exception will be thrown.
     exec::ExprSet exprSet(std::move(expressions), execCtx_);
   } catch (const VeloxException& err) {
@@ -275,11 +276,11 @@ bool SubstraitToVeloxPlanValidator::validate(
   try {
     expressions.emplace_back(
         exprConverter_->toVeloxExpr(sFilter.condition(), rowType));
-    // Try to compile the expressions. If there is any unregistred funciton
+    // Try to compile the expressions. If there is any unregistered function
     // or mismatched type, exception will be thrown.
     exec::ExprSet exprSet(std::move(expressions), execCtx_);
   } catch (const VeloxException& err) {
-    std::cout << "Validation failed for expression in ProjectRel due to:"
+    std::cout << "Validation failed for expression in FilterRel due to:"
               << err.message() << std::endl;
     return false;
   }
@@ -356,6 +357,62 @@ bool SubstraitToVeloxPlanValidator::validate(
   return true;
 }
 
+bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(
+    const ::substrait::AggregateRel& sAgg) {
+  if (sAgg.measures_size() == 0) {
+    return true;
+  }
+  core::AggregationNode::Step step = planConverter_->toAggregationStep(sAgg);
+  for (const auto& smea : sAgg.measures()) {
+    const auto& aggFunction = smea.measure();
+    auto funcSpec =
+        planConverter_->findFuncSpec(aggFunction.function_reference());
+    auto funcName = subParser_->getSubFunctionName(funcSpec);
+    std::vector<TypePtr> types;
+    try {
+      std::vector<std::string> funcTypes;
+      subParser_->getSubFunctionTypes(funcSpec, funcTypes);
+      types.reserve(funcTypes.size());
+      for (auto& type : funcTypes) {
+        types.emplace_back(toVeloxType(subParser_->parseType(type)));
+      }
+    } catch (const VeloxException& err) {
+      std::cout
+          << "Validation failed for input type in AggregateRel function due to:"
+          << err.message() << std::endl;
+      return false;
+    }
+    if (auto signatures = exec::getAggregateFunctionSignatures(funcName)) {
+      for (const auto& signature : signatures.value()) {
+        exec::SignatureBinder binder(*signature, types);
+        if (binder.tryBind()) {
+          auto resolveType = binder.tryResolveType(
+              exec::isPartialOutput(step) ? signature->intermediateType()
+                                          : signature->returnType());
+          if (resolveType == nullptr) {
+            std::cout
+                << fmt::format(
+                       "Validation failed for function {} resolve type in AggregateRel.",
+                       funcName)
+                << std::endl;
+            return false;
+          }
+          return true;
+        }
+      }
+      std::cout
+          << fmt::format(
+                 "Validation failed for function {} bind in AggregateRel.",
+                 funcName)
+          << std::endl;
+      return false;
+    }
+  }
+  std::cout << "Validation failed for function resolve in AggregateRel."
+            << std::endl;
+  return false;
+}
+
 bool SubstraitToVeloxPlanValidator::validate(
     const ::substrait::AggregateRel& sAgg) {
   if (sAgg.has_input() && !validate(sAgg.input())) {
@@ -364,10 +421,10 @@ bool SubstraitToVeloxPlanValidator::validate(
 
   // Validate input types.
   if (sAgg.has_advanced_extension()) {
-    const auto& extension = sAgg.advanced_extension();
     std::vector<TypePtr> types;
+    const auto& extension = sAgg.advanced_extension();
     if (!validateInputTypes(extension, types)) {
-      std::cout << "Validation failed for input types in AggregateRel"
+      std::cout << "Validation failed for input types in AggregateRel."
                 << std::endl;
       return false;
     }
@@ -425,6 +482,30 @@ bool SubstraitToVeloxPlanValidator::validate(
       return false;
     }
   }
+
+  if (!validateAggRelFunctionType(sAgg)) {
+    return false;
+  }
+
+  // Validate both groupby and aggregates input are empty, which is corner case.
+  if (sAgg.measures_size() == 0) {
+    bool hasExpr = false;
+    for (const auto& grouping : sAgg.groupings()) {
+      for (const auto& groupingExpr : grouping.grouping_expressions()) {
+        hasExpr = true;
+        break;
+      }
+      if (hasExpr) {
+        break;
+      }
+    }
+    if (!hasExpr) {
+      std::cout
+          << "Validation failed due to aggregation must specify either grouping keys or aggregates."
+          << std::endl;
+      return false;
+    }
+  }
   return true;
 }
 
@@ -436,6 +517,42 @@ bool SubstraitToVeloxPlanValidator::validate(
     std::cout << "ReadRel validation failed due to:" << err.message()
               << std::endl;
     return false;
+  }
+
+  // Validate filter in ReadRel.
+  if (sRead.has_filter()) {
+    std::vector<std::shared_ptr<const core::ITypedExpr>> expressions;
+    expressions.reserve(1);
+
+    std::vector<TypePtr> veloxTypeList;
+    if (sRead.has_base_schema()) {
+      const auto& baseSchema = sRead.base_schema();
+      auto substraitTypeList = subParser_->parseNamedStruct(baseSchema);
+      veloxTypeList.reserve(substraitTypeList.size());
+      for (const auto& substraitType : substraitTypeList) {
+        veloxTypeList.emplace_back(toVeloxType(substraitType->type));
+      }
+    }
+    std::vector<std::string> names;
+    int32_t inputPlanNodeId = 0;
+    names.reserve(veloxTypeList.size());
+    for (auto colIdx = 0; colIdx < veloxTypeList.size(); colIdx++) {
+      names.emplace_back(subParser_->makeNodeName(inputPlanNodeId, colIdx));
+    }
+    auto rowType =
+        std::make_shared<RowType>(std::move(names), std::move(veloxTypeList));
+
+    try {
+      expressions.emplace_back(
+          exprConverter_->toVeloxExpr(sRead.filter(), rowType));
+      // Try to compile the expressions. If there is any unregistered function
+      // or mismatched type, exception will be thrown.
+      exec::ExprSet exprSet(std::move(expressions), execCtx_);
+    } catch (const VeloxException& err) {
+      std::cout << "Validation failed for filter expression in ReadRel due to:"
+                << err.message() << std::endl;
+      return false;
+    }
   }
   return true;
 }
