@@ -335,7 +335,7 @@ void PageReader::prepareDictionary(const PageHeader& pageHeader) {
       break;
     }
     case thrift::Type::INT96: {
-      int32_t typeSize = sizeof(uint64_t);
+      int32_t typeSize = sizeof(int64_t) + 32;
       auto numBytes = dictionary_.numValues * typeSize;
       dictionary_.values = AlignedBuffer::allocate<char>(numBytes, &pool_);
       if (pageData_) {
@@ -467,6 +467,7 @@ int32_t parquetTypeBytes(thrift::Type::type type) {
       return 4;
     case thrift::Type::INT64:
     case thrift::Type::DOUBLE:
+    case thrift::Type::INT96:
       return 8;
     default:
       VELOX_FAIL("Type does not have a byte width {}", type);
